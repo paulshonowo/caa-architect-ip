@@ -1,0 +1,18 @@
+# Local Terraform directory
+.terraform/
+.terraform.lock.hcl
+
+# State files (Never commit these!)
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+
+# Sensitive credentials & crash logs
+*.pem
+*.tfvars.json
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json

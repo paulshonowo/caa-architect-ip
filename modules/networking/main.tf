@@ -1,13 +1,13 @@
-# Custom Mode VPC
+# VPC Network (Custom Mode)
 resource "google_compute_network" "vpc" {
-  name                    = var.vpc_name
+  name                    = "${var.prefix}-${var.environment}-vpc"
   project                 = var.project_id
   auto_create_subnetworks = false
 }
 
-# Private Application Subnet with Secondary IP Ranges
+# Private Subnet with Secondary IP Ranges for GKE
 resource "google_compute_subnetwork" "app_subnet" {
-  name                     = "${var.vpc_name}-app-subnet"
+  name                     = "${var.prefix}-${var.environment}-app-subnet"
   project                  = var.project_id
   region                   = var.region
   network                  = google_compute_network.vpc.id
@@ -25,17 +25,17 @@ resource "google_compute_subnetwork" "app_subnet" {
   }
 }
 
-# Cloud Router for NAT
+# Cloud Router
 resource "google_compute_router" "router" {
-  name    = "${var.vpc_name}-router"
+  name    = "${var.prefix}-${var.environment}-router"
   project = var.project_id
   region  = var.region
   network = google_compute_network.vpc.id
 }
 
-# Cloud NAT for Secure Outbound Internet Access (No Public IPs on Compute)
+# Cloud NAT Gateway
 resource "google_compute_router_nat" "nat" {
-  name                               = "${var.vpc_name}-nat"
+  name                               = "${var.prefix}-${var.environment}-nat"
   project                            = var.project_id
   region                             = var.region
   router                             = google_compute_router.router.name
@@ -43,22 +43,53 @@ resource "google_compute_router_nat" "nat" {
   source_subnetwork_ip_ranges_to_nat = "ALL_SUBNETWORKS_ALL_IP_RANGES"
 
   log_config {
-    enable = true
-    filter = "ERRORS_ONLY"
+    enable = var.nat_log_level != "NONE"
+    filter = var.nat_log_level == "NONE" ? "ERRORS_ONLY" : var.nat_log_level
   }
 }
 
-# Deny Ingress Firewall Rules (Default-Deny + IAP Allow)
+# Firewall Rule: Allow Ingress strictly from GCP Identity-Aware Proxy (IAP) CIDR
 resource "google_compute_firewall" "allow_iap_ssh" {
-  name    = "${var.vpc_name}-allow-iap-ssh"
-  project = var.project_id
-  network = google_compute_network.vpc.name
+  name        = "${var.prefix}-${var.environment}-allow-iap-ssh"
+  project     = var.project_id
+  network     = google_compute_network.vpc.name
+  description = "Allow inbound SSH traffic exclusively via GCP Identity-Aware Proxy."
+  direction   = "INGRESS"
+  priority    = 1000
+
+  source_ranges = ["35.235.240.0/20"]
 
   allow {
     protocol = "tcp"
     ports    = ["22"]
   }
+}
 
-  # Google Cloud Identity-Aware Proxy (IAP) netblock
-  source_ranges = ["35.235.240.0/20"]
+# Access Context Manager Policy
+resource "google_access_context_manager_access_policy" "policy" {
+  parent = "organizations/${var.project_id}" # Expects numeric org ID if elevated, or project context
+  title  = var.access_policy_title
+}
+
+# VPC Service Controls Perimeter
+resource "google_access_context_manager_service_perimeter" "perimeter" {
+  parent         = "accessPolicies/${google_access_context_manager_access_policy.policy.name}"
+  name           = "accessPolicies/${google_access_context_manager_access_policy.policy.name}/servicePerimeters/${var.prefix}_${var.environment}_perimeter"
+  title          = "${var.prefix}-${var.environment}-perimeter"
+  perimeter_type = "PERIMETER_TYPE_REGULAR"
+
+  spec {
+    resources = ["projects/${var.project_id}"]
+    restricted_services = var.vpc_sc_dry_run ? [] : var.protected_services
+  }
+
+  dynamic "use_explicit_dry_run_spec" {
+    for_each = var.vpc_sc_dry_run ? [1] : []
+    content {
+      status {
+        resources           = ["projects/${var.project_id}"]
+        restricted_services = var.protected_services
+      }
+    }
+  }
 }

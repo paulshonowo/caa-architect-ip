@@ -1,21 +1,16 @@
 variable "org_id" {
+  description = "The numeric GCP Organization ID where policy rules will be enforced."
   type        = string
-  description = "The GCP Organization ID"
 }
 
-variable "billing_account" {
-  type        = string
-  description = "The GCP Billing Account ID"
-}
-
-variable "allowed_regions" {
-  type        = list(string)
-  description = "Allowed GCP regions for organization policy restriction"
-  default     = ["in:eu-locations", "in:us-locations"]
-}
-
-variable "enable_strict_external_ip_block" {
+variable "enforce_policies" {
+  description = "Global boolean toggle to enforce boolean org policies."
   type        = bool
-  description = "Whether to block external IP creation on VM instances"
   default     = true
+}
+
+variable "allowed_locations" {
+  description = "List of allowed physical locations for GCP resource deployment."
+  type        = list(string)
+  default     = ["in:eu-locations"]
 }
